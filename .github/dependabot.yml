@@ -49,3 +49,13 @@ updates:
   #   labels:
   #     - "dependencies"
   #     - "docker"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+
+  - package-ecosystem: pip
+    directory: /packages/langgraph-checkpoint-aerospike
+    schedule:
+      interval: daily
