@@ -10,6 +10,7 @@ import asyncio
 from langchain_core.runnables import RunnableConfig
 
 import aerospike
+from aerospike_helpers.operations import list_operations
 from langgraph.checkpoint.base import (
     BaseCheckpointSaver,
     CheckpointTuple,
@@ -210,24 +211,17 @@ class AerospikeSaver(BaseCheckpointSaver):
         task_id: str,
         task_path: str = "",
     ) -> None:
-        
         if not writes:
             return
 
         thread_id, checkpoint_ns, checkpoint_id = self._ids_from_config(config)
         if not checkpoint_id:
             return
-        
-        key = self._key_writes(thread_id, checkpoint_ns, checkpoint_id) # Do we need to put task id as key. (Reason: Record limit 8Mb)
 
-        existing_rec = self._get(key)
-        existing_items: List[Dict[str, Any]] = []
-        if existing_rec is not None:
-            _, _, bins = existing_rec
-            existing_items = bins.get("writes")
-        
+        key = self._key_writes(thread_id, checkpoint_ns, checkpoint_id)
+
         now_ts = _now_ns().isoformat()
-
+        ops: list = []
         for idx, (channel, value) in enumerate(writes):
             idx_val = WRITES_IDX_MAP.get(channel, idx)
             type_, serialized = self.serde.dumps_typed(value)
@@ -241,19 +235,18 @@ class AerospikeSaver(BaseCheckpointSaver):
                 "value": serialized,
                 "ts": now_ts,
             }
-            replace_at: Optional[int] = None
-            for i, item in enumerate(existing_items):
-                if item.get("task_id") == task_id and item.get("idx") == idx_val:
-                    replace_at = i
-                    break
+            ops.append(list_operations.list_append("writes", new_item))
 
-            if replace_at is not None:
-                existing_items[replace_at] = new_item
-            else:
-                existing_items.append(new_item)
+        meta = None
+        if self._ttl_minutes is not None:
+            minutes = int(self._ttl_minutes)
+            if minutes > 0:
+                meta = {"ttl": minutes * 60}
 
-        
-        self._put(key, {"writes": existing_items})
+        try:
+            self.client.operate(key, ops, meta=meta)
+        except aerospike.exception.AerospikeError as e:
+            raise RuntimeError(f"Aerospike operate failed for {key}: {e}") from e
 
     def get_tuple(
         self,
@@ -298,7 +291,17 @@ class AerospikeSaver(BaseCheckpointSaver):
         if wrec is not None:
             _, _, wbins = wrec
             items = wbins.get("writes") or []
+
+            deduped: dict[Tuple[str, Any], dict] = {}
             for item in items:
+                try:
+                    tid = item.get("task_id", "")
+                    idx_val = item.get("idx")
+                    deduped[(tid, idx_val)] = item
+                except (KeyError, TypeError):
+                    continue
+
+            for item in deduped.values():
                 try:
                     task_id = item.get("task_id", "")
                     channel = item["channel"]
