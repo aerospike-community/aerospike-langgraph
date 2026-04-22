@@ -38,3 +38,8 @@ Repository = "https://github.com/aerospike/aerospike-langgraph/tree/main/package
 [tool.setuptools.packages.find]
 namespaces = true
 include = ["langgraph.store.*"]
+
+# Deptry: imports vs declared dependencies. Needs PEP 420 mode because
+# this package contributes to the shared `langgraph.*` namespace.
+[tool.deptry]
+experimental_namespace_package = true

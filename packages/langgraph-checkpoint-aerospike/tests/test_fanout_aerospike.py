@@ -2,7 +2,7 @@
 
 import operator
 import os
-from typing import Annotated
+from typing import Annotated, TypedDict
 
 import pytest
 from langchain_core.runnables import RunnableConfig
@@ -10,7 +10,6 @@ from langgraph.checkpoint.aerospike import AerospikeSaver
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
-from typing_extensions import TypedDict
 
 # ---------- Graph definitions (copied from Mongo benchmark, sync only) ----------
 

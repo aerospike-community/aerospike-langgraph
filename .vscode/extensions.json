@@ -2,8 +2,6 @@
 	"recommendations": [
 		"charliermarsh.ruff",
 		"ms-python.python",
-		"ms-python.mypy-type-checker",
-		"streetsidesoftware.code-spell-checker",
-		"editorconfig.editorconfig"
+		"ms-python.mypy-type-checker"
 	]
 }

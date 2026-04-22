@@ -1,5 +1,4 @@
 {
-	"cSpell.words": ["aerospike", "langgraph"],
 	"[python]": {
 		"editor.defaultFormatter": "charliermarsh.ruff",
 		"editor.formatOnSave": true,

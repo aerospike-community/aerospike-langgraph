@@ -1,73 +1,36 @@
-# OS-specific files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-*~
-
-# Editor files
-.idea/
-*.swp
-*.swo
-*.swn
-*.bak
-.project
-.settings/
-.classpath
-
-# Build artifacts
-*.o
-*.so
-*.dylib
-*.dll
-*.exe
-*.out
-*.app
-*.class
-*.pyc
-*.pyo
+# Python bytecode / build artifacts
 __pycache__/
+*.py[cod]
 *.egg-info/
-dist/
 build/
-*.log
+dist/
 
-# Dependency directories
-node_modules/
-vendor/
-venv/
+# Virtual environment (uv-managed)
 .venv/
-env/
+
+# Tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
 
 # Test coverage
-coverage/
 .coverage
-*.cover
+.coverage.*
+coverage.xml
 htmlcov/
 
-# Temporary files
-tmp/
-temp/
-*.tmp
-*.cache
+# IDEs / editors
+.idea/
+*.swp
+# Keep the small, intentional .vscode files committed; ignore everything else.
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
 
-# Package files
-*.tar.gz
-*.zip
-*.rar
-*.7z
+# OS junk
+.DS_Store
+Thumbs.db
 
-# IDE-specific
-.metadata
-bin/
-target/
-.gradle/
-
-# Trunk
-.trunk/out/
-.trunk/logs/
-.trunk/notifications/
-.trunk/plugins/
+# Local env files (may contain secrets)
+.env
+.env.*

@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, dev]
   push:
     branches: [dev]
   workflow_dispatch:
@@ -34,6 +34,12 @@ jobs:
 
       - name: Mypy
         run: uv run mypy
+
+      - name: Deptry (langgraph-checkpoint-aerospike)
+        run: uv run deptry packages/langgraph-checkpoint-aerospike --config packages/langgraph-checkpoint-aerospike/pyproject.toml
+
+      - name: Deptry (langgraph-store-aerospike)
+        run: uv run deptry packages/langgraph-store-aerospike --config packages/langgraph-store-aerospike/pyproject.toml
 
   test:
     name: Tests (Python ${{ matrix.python-version }})

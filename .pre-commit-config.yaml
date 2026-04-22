@@ -39,3 +39,19 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+
+      # Deptry: catches imports that aren't declared in pyproject.toml and
+      # declared deps that nothing imports. Run once per workspace package
+      # so each package is checked against its own dependency list.
+      - id: deptry-checkpoint
+        name: deptry (langgraph-checkpoint-aerospike)
+        entry: uv run deptry packages/langgraph-checkpoint-aerospike --config packages/langgraph-checkpoint-aerospike/pyproject.toml
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: deptry-store
+        name: deptry (langgraph-store-aerospike)
+        entry: uv run deptry packages/langgraph-store-aerospike --config packages/langgraph-store-aerospike/pyproject.toml
+        language: system
+        types: [python]
+        pass_filenames: false
