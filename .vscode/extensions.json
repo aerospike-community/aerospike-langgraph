@@ -1,8 +1,7 @@
 {
 	"recommendations": [
-		"trunk.io",
-		"streetsidesoftware.code-spell-checker",
-		"editorconfig.editorconfig"
-	],
-	"unwantedRecommendations": ["kennylong.kubernetes-yaml-formatter"]
+		"charliermarsh.ruff",
+		"ms-python.python",
+		"ms-python.mypy-type-checker"
+	]
 }

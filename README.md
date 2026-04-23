@@ -2,6 +2,8 @@
 
 Aerospike-backed persistence for [LangGraph](https://github.com/langchain-ai/langgraph). This monorepo provides drop-in checkpoint and store implementations so your LangGraph agents can durably save state to an [Aerospike](https://aerospike.com/) cluster.
 
+![Aerospike + LangGraph flow](./assets/Langgraph-Aerospike-Flow.png)
+
 ## Packages
 
 | Package                                                                     | Description                                          | Install                                         |
@@ -14,7 +16,7 @@ Aerospike-backed persistence for [LangGraph](https://github.com/langchain-ai/lan
 - Python >= 3.10
 - Aerospike Server (or the [Docker image](https://hub.docker.com/_/aerospike))
 - `aerospike` Python client >= 15
-- `langgraph` >= 0.6
+- `langgraph` >= 1.0
 
 ## Quick Start
 
@@ -69,19 +71,76 @@ Both packages read connection details from environment variables by default:
 
 ## Development
 
+Each package in this monorepo is independently installable and testable. The workflow below is per-package — install both if you want to develop them together.
+
+### Prerequisites
+
+- Python >= 3.10
+- A running Aerospike server (see [Quick Start](#1-start-aerospike))
+
+### 1. Clone and create a virtualenv
+
 ```bash
-# Clone the repo
 git clone https://github.com/aerospike/aerospike-langgraph.git
 cd aerospike-langgraph
 
-# Install a package in editable mode
-pip install -e packages/langgraph-checkpoint-aerospike
-pip install -e packages/langgraph-store-aerospike
+python -m venv venv
+source venv/bin/activate           # Linux / macOS
+# .\venv\Scripts\Activate.ps1      # Windows PowerShell
 
-# Run tests (requires a running Aerospike instance)
+python -m pip install --upgrade pip
+```
+
+### 2. Install the package(s) you want to work on
+
+Each package declares a `[dev]` extra that pulls in everything needed to run its tests. Install whichever you're modifying:
+
+```bash
+# Checkpoint saver
+pip install -e "packages/langgraph-checkpoint-aerospike[dev]"
+
+# Store
+pip install -e "packages/langgraph-store-aerospike[dev]"
+```
+
+The `-e` (editable) flag means your source changes are picked up immediately without reinstalling. You can install both at once if you want:
+
+```bash
+pip install -e "packages/langgraph-checkpoint-aerospike[dev]" \
+            -e "packages/langgraph-store-aerospike[dev]"
+```
+
+### 3. Run the tests
+
+Tests are integration tests that connect to a real Aerospike cluster. Defaults are `127.0.0.1:3000`, namespace `test` — override via environment variables if needed:
+
+| Variable              | Default     |
+| --------------------- | ----------- |
+| `AEROSPIKE_HOST`      | `127.0.0.1` |
+| `AEROSPIKE_PORT`      | `3000`      |
+| `AEROSPIKE_NAMESPACE` | `test`      |
+
+```bash
 pytest packages/langgraph-checkpoint-aerospike/tests
 pytest packages/langgraph-store-aerospike/tests
 ```
+
+### Alternative: using `uv`
+
+If you have [uv](https://docs.astral.sh/uv/) installed, the whole setup collapses to a single command. The repo is configured as a [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/), so `uv sync` creates a `.venv`, installs both packages in editable mode, and pulls in all dev dependencies.
+
+```bash
+# One-time: install uv (see https://docs.astral.sh/uv/getting-started/installation/)
+
+# Install everything
+uv sync
+
+# Run tests
+uv run pytest packages/langgraph-checkpoint-aerospike/tests
+uv run pytest packages/langgraph-store-aerospike/tests
+```
+
+uv is optional — the pip-based workflow above remains fully supported. Adopt whichever you prefer.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for linting, commit conventions, and CI details.
 

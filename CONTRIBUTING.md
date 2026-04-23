@@ -24,15 +24,19 @@ Linting will be run on PRs; you can save yourself some time and annoyance by lin
 
 If you use Visual Studio Code or a derivative, there are suggested extensions in the [.vscode](.vscode) directory.
 
-### Trunk
+### pre-commit hooks
 
-Trunk can also be run as a CLI. Once installed, you can run `trunk git-hooks sync` to check and make sure that your code will pass CI.
+This repo uses [`ruff`](https://docs.astral.sh/ruff/) for linting/formatting and [`mypy`](https://mypy.readthedocs.io/) for type checking, both wired up via [`pre-commit`](https://pre-commit.com/). After `uv sync`, install the git hooks once so they run automatically on every `git commit`:
 
-### Linter notes
+```bash
+uv run pre-commit install
+```
 
-`kennylong.kubernetes-yaml-formatter`: **Do NOT install or enable this extension.** It is marked as unwanted in `.vscode/extensions.json` because it conflicts with Trunk and Prettier on YAML formatting rules. If you have yaml format-on-save enabled with kennylong's extension, `trunk check|fmt` will complain about it.
+To run all checks against the whole repo manually (same checks CI runs):
 
-`streetsidesoftware.code-spell-checker`: This isn't enabled via trunk and you should run it in your editor of choice. Trunk marks all misspelled words as errors, when they should properly be notes (blue squiggles, not red squiggles).
+```bash
+uv run pre-commit run --all-files
+```
 
 ### Contributor
 

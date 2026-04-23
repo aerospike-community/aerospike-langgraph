@@ -1,0 +1,75 @@
+[project]
+name = "aerospike-langgraph"
+version = "0"
+description = "Monorepo root for the aerospike-langgraph packages"
+requires-python = ">=3.10"
+
+dependencies = [
+  "langgraph-checkpoint-aerospike",
+  "langgraph-store-aerospike",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "langchain-community",
+  "ruff>=0.15",
+  "mypy>=1.20",
+  "pre-commit>=4.6",
+  "deptry>=0.25",
+]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+langgraph-checkpoint-aerospike = { workspace = true }
+langgraph-store-aerospike = { workspace = true }
+
+# Ruff: linter and formatter.
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = [".venv", "dist", "build"]
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "I",   # isort
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+  "SIM", # flake8-simplify
+  "C4",  # flake8-comprehensions
+  "N",   # pep8-naming
+]
+ignore = [
+  "E501", # line length, handled by the formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["B011"]
+
+# Mypy: static type checker.
+[tool.mypy]
+python_version = "3.10"
+# Both packages share the `langgraph.*` namespace (PEP 420).
+mypy_path = "packages/langgraph-checkpoint-aerospike:packages/langgraph-store-aerospike"
+files = [
+  "packages/langgraph-checkpoint-aerospike/langgraph",
+  "packages/langgraph-store-aerospike/langgraph",
+]
+namespace_packages = true
+explicit_package_bases = true
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+warn_unreachable = true
+
+# Skip type-checking tests.
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_errors = true

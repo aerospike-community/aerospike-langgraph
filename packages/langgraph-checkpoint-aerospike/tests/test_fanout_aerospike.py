@@ -2,20 +2,17 @@
 
 import operator
 import os
-from typing import Annotated
+from typing import Annotated, TypedDict
 
 import pytest
-from typing_extensions import TypedDict
-
 from langchain_core.runnables import RunnableConfig
-from langgraph.constants import START, Send
-from langgraph.graph import END, StateGraph
-from langgraph.checkpoint.base import BaseCheckpointSaver
-
 from langgraph.checkpoint.aerospike import AerospikeSaver
-
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import Send
 
 # ---------- Graph definitions (copied from Mongo benchmark, sync only) ----------
+
 
 class OverallState(TypedDict):
     subjects: list[str]
@@ -30,8 +27,7 @@ class JokeOutput(TypedDict):
     jokes: list[str]
 
 
-class JokeState(JokeInput, JokeOutput):
-    ...
+class JokeState(JokeInput, JokeOutput): ...
 
 
 N_SUBJECTS = 10
@@ -50,11 +46,7 @@ def fanout_to_subgraph() -> StateGraph:
 
     def bump_loop(state: JokeOutput) -> str:
         # Repeat bump 3 times, then go to edit
-        return (
-            "edit"
-            if state["jokes"][0].endswith(" and the year before" * 3)
-            else "bump"
-        )
+        return "edit" if state["jokes"][0].endswith(" and the year before" * 3) else "bump"
 
     subgraph = StateGraph(JokeState)
     subgraph.add_node("edit", edit)
@@ -79,6 +71,7 @@ def fanout_to_subgraph() -> StateGraph:
 
 
 # ---------- Fixtures ----------
+
 
 @pytest.fixture
 def joke_subjects() -> OverallState:
@@ -125,6 +118,7 @@ def disable_langsmith() -> None:
 
 # ---------- Tests (sync only) ----------
 
+
 def test_fanout_aerospike(joke_subjects: OverallState, aerospike_saver: AerospikeSaver) -> None:
     assert isinstance(aerospike_saver, BaseCheckpointSaver)
 
@@ -139,7 +133,7 @@ def test_fanout_aerospike(joke_subjects: OverallState, aerospike_saver: Aerospik
     }
 
     # Sync streaming version
-    out = [c for c in graphc.stream(joke_subjects, config=config)]
+    out = list(graphc.stream(joke_subjects, config=config))
 
     # We expect one result per subject
     assert len(out) == N_SUBJECTS
@@ -149,9 +143,7 @@ def test_fanout_aerospike(joke_subjects: OverallState, aerospike_saver: Aerospik
 
     # Every joke should end with the triple "year before" + "... and cats!"
     assert all(
-        res["generate_joke"]["jokes"][0].endswith(
-            f"{' and the year before' * 3}... and cats!"
-        )
+        res["generate_joke"]["jokes"][0].endswith(f"{' and the year before' * 3}... and cats!")
         for res in out
     )
 
@@ -161,13 +153,17 @@ def test_custom_properties_aerospike(aerospike_saver: AerospikeSaver) -> None:
 
     assistant_id = "456"
     user_id = "789"
+    # `assistant_id` is a known LangGraph-forwarded `configurable` key, so it
+    # flows into checkpoint metadata automatically. Arbitrary extras like
+    # `user_id` must be passed via `config["metadata"]`, which AerospikeSaver
+    # merges into the checkpoint metadata inside `put()`.
     config: RunnableConfig = {
         "configurable": {
             "thread_id": "custom_props_aerospike",
             "checkpoint_ns": "demo_fanout",
             "assistant_id": assistant_id,
-            "user_id": user_id,
-        }
+        },
+        "metadata": {"user_id": user_id},
     }
 
     compiled = state_graph.compile(checkpointer=aerospike_saver)
@@ -183,8 +179,5 @@ def test_custom_properties_aerospike(aerospike_saver: AerospikeSaver) -> None:
     checkpoint_tuple = aerospike_saver.get_tuple(config)
     assert checkpoint_tuple is not None
 
-    print(checkpoint_tuple)
-
-    # Thanks to the merged metadata in put(), these should be present:
-    assert checkpoint_tuple.metadata.get("user_id") == user_id
     assert checkpoint_tuple.metadata.get("assistant_id") == assistant_id
+    assert checkpoint_tuple.metadata.get("user_id") == user_id

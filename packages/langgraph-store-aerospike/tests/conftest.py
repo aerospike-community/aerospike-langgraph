@@ -1,6 +1,10 @@
+import contextlib
 import os
-import pytest
+
 import aerospike
+import pytest
+
+
 @pytest.fixture(scope="session")
 def client():
     """Create a single Aerospike client shared across tests."""
@@ -13,18 +17,21 @@ def client():
     except aerospike.exception.AerospikeError as e:
         pytest.skip(f"Could not connect to Aerospike at {host}:{port}: {e}")
     yield c
-    try:
+    with contextlib.suppress(Exception):
         c.close()
-    except Exception:
-        pass
+
+
 @pytest.fixture(scope="session")
 def namespace():
     """Default namespace for testing."""
     return "test"  # works with Docker default config
+
+
 @pytest.fixture()
 def store(client, namespace):
     """Create a fresh AerospikeStore instance for tests."""
     from langgraph.store.aerospike.base import AerospikeStore  # adjust import if needed
+
     return AerospikeStore(
         client=client,
         namespace=namespace,

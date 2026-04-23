@@ -1,10 +1,13 @@
 # tests/test_graph_smoke_live.py
 from typing import TypedDict
-from langgraph.graph import StateGraph, END
+
 from langchain_core.runnables import RunnableLambda
+from langgraph.graph import END, StateGraph
+
 
 class S(TypedDict):
     x: int
+
 
 def _build_graph(checkpointer):
     g = StateGraph(S)
@@ -15,11 +18,12 @@ def _build_graph(checkpointer):
     g.add_edge("double", END)
     return g.compile(checkpointer=checkpointer)
 
+
 def test_graph_smoke_runs_and_persists_checkpoint(saver, cfg_base):
     app = _build_graph(saver)
 
     # Run once
-    out = app.invoke({"x":1}, cfg_base)
+    out = app.invoke({"x": 1}, cfg_base)
     print(out)
     assert out["x"] == 4  # (1+1)*2
 

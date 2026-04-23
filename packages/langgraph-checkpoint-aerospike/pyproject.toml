@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,13 +8,13 @@ version = "0.1.0"
 description = "Aerospike-based checkpoint saver for LangGraph"
 readme = "README.md"
 requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [
     {name = "Aerospike, Inc.", email = "info@aerospike.com"}
 ]
-license = { text = "Apache Software License" }
 keywords = ["langgraph", "aerospike", "checkpoint"]
 classifiers = [
-    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -23,8 +23,14 @@ classifiers = [
     "Topic :: Database",
 ]
 dependencies = [
-  "langgraph>=0.6.0",
-  "aerospike>=15.0.0",
+  "langgraph>=1.0",
+  "langchain-core>=1.0",
+  "aerospike>=15.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
 ]
 
 [project.urls]
@@ -33,3 +39,8 @@ Repository = "https://github.com/aerospike/aerospike-langgraph/tree/main/package
 [tool.setuptools.packages.find]
 namespaces = true
 include = ["langgraph.checkpoint.*"]
+
+# Deptry: imports vs declared dependencies. Needs PEP 420 mode because
+# this package contributes to the shared `langgraph.*` namespace.
+[tool.deptry]
+experimental_namespace_package = true

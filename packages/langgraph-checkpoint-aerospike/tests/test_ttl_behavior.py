@@ -7,13 +7,13 @@ import pytest
 
 
 @pytest.fixture
-def short_ttl_saver(AerospikeSaver, client, aerospike_namespace):
+def short_ttl_saver(aerospike_saver_cls, client, aerospike_namespace):
     """Saver with a small TTL (1 minute) and sliding TTL enabled."""
     ttl_cfg = {
-        "default_ttl": 1,        # minutes
+        "default_ttl": 1,  # minutes
         "refresh_on_read": True,
     }
-    return AerospikeSaver(
+    return aerospike_saver_cls(
         client=client,
         namespace=aerospike_namespace,
         ttl=ttl_cfg,
@@ -97,4 +97,3 @@ def test_ttl_resets_on_read(short_ttl_saver, client, aerospike_namespace):
     # ttl_after would be roughly ttl_before - 1 or less.
     # Allowing equality handles coarse timer resolution.
     assert ttl_after >= ttl_before, f"Expected ttl_after ({ttl_after}) >= ttl_before ({ttl_before})"
-

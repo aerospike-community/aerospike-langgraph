@@ -1,0 +1,57 @@
+# Runs locally on every `git commit` once contributors have installed
+# pre-commit hooks via `uv run pre-commit install`. The same checks run in CI.
+#
+# Manual invocations:
+#   uv run pre-commit run --all-files       # run every hook on every file
+#   uv run pre-commit run ruff --all-files   # run a single hook
+#
+# Rule configuration for ruff/mypy lives in pyproject.toml, not here.
+
+repos:
+  # Built-in hygiene hooks (no external deps).
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+
+  # Ruff: linter + formatter. Runs in an isolated env, so it's fast and
+  # doesn't depend on the project's venv being synced.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.11
+    hooks:
+      - id: ruff-format
+      - id: ruff
+        args: [--fix]
+
+  # Mypy: runs as a local hook so it can see the project's installed
+  # dependencies (langgraph, aerospike, ...) for accurate type resolution.
+  # Requires `uv sync` to have been run first.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: uv run mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      # Deptry: catches imports that aren't declared in pyproject.toml and
+      # declared deps that nothing imports. Run once per workspace package
+      # so each package is checked against its own dependency list.
+      - id: deptry-checkpoint
+        name: deptry (langgraph-checkpoint-aerospike)
+        entry: uv run deptry packages/langgraph-checkpoint-aerospike --config packages/langgraph-checkpoint-aerospike/pyproject.toml
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: deptry-store
+        name: deptry (langgraph-store-aerospike)
+        entry: uv run deptry packages/langgraph-store-aerospike --config packages/langgraph-store-aerospike/pyproject.toml
+        language: system
+        types: [python]
+        pass_filenames: false

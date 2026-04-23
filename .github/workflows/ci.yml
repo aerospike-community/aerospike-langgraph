@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint and type-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync
+
+      - name: Ruff (lint)
+        run: uv run ruff check .
+
+      - name: Ruff (format check)
+        run: uv run ruff format --check .
+
+      - name: Mypy
+        run: uv run mypy
+
+      - name: Deptry (langgraph-checkpoint-aerospike)
+        run: uv run deptry packages/langgraph-checkpoint-aerospike --config packages/langgraph-checkpoint-aerospike/pyproject.toml
+
+      - name: Deptry (langgraph-store-aerospike)
+        run: uv run deptry packages/langgraph-store-aerospike --config packages/langgraph-store-aerospike/pyproject.toml
+
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+
+    services:
+      aerospike:
+        image: aerospike/aerospike-server:8.1
+        ports:
+          - 3000:3000
+        # The CE image ships with default-ttl=0, which disables nsup and makes
+        # the server reject any write that carries a TTL. Our tests always pass
+        # a TTL, so enable nsup by setting a non-zero default-ttl here.
+        env:
+          DEFAULT_TTL: 30d
+
+    env:
+      AEROSPIKE_HOST: localhost
+      AEROSPIKE_PORT: "3000"
+      AEROSPIKE_NAMESPACE: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv (and Python ${{ matrix.python-version }})
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+
+      - name: Sync dependencies
+        run: uv sync
+
+      - name: Wait for Aerospike to accept connections
+        run: |
+          for i in $(seq 1 30); do
+            if (echo > /dev/tcp/127.0.0.1/3000) >/dev/null 2>&1; then
+              echo "Aerospike is reachable on port 3000"
+              exit 0
+            fi
+            echo "Waiting for Aerospike... ($i/30)"
+            sleep 1
+          done
+          echo "Aerospike never became reachable"
+          exit 1
+
+      - name: Run tests
+        run: uv run pytest -v

@@ -1,29 +1,37 @@
 # tests/test_store_basic.py
-from langgraph.store.base import PutOp, GetOp, SearchOp, ListNamespacesOp, MatchCondition
+from langgraph.store.base import GetOp, ListNamespacesOp, MatchCondition, PutOp, SearchOp
+
+
 def cleanup(store):
     """Delete all records in this namespace/set."""
     scan = store.client.scan(store.ns, store.set)
-    for key, meta, bins in scan.results():
+    for key, _meta, _bins in scan.results():
         store.client.remove(key)
+
+
 def test_write_and_get(store):
     cleanup(store)
     ns = ("demo", "user1")
     key = "k1"
     value = {"foo": "bar"}
-    store.write(PutOp(namespace=ns, key=key, value=value))
+    store.batch([PutOp(namespace=ns, key=key, value=value)])
     item = store.get(ns, key)
     assert item is not None
     assert item.namespace == ns
     assert item.key == key
     assert item.value == value
+
+
 def test_list_namespaces(store):
     cleanup(store)
     ns = ("demo", "user2")
-    store.write(PutOp(namespace=ns, key="x", value={"a": 1}))
+    store.batch([PutOp(namespace=ns, key="x", value={"a": 1})])
     out = store.list_namespaces()
     assert ns in out
     prefixed = store.list_namespaces(prefix=("demo",))
     assert ns in prefixed
+
+
 def test_search(store):
     cleanup(store)
     ns = ("demo", "user3")
@@ -33,11 +41,16 @@ def test_search(store):
     print(len(res[0]))
     assert len(res[0]) == 2
     filtered = store.batch(
-        [SearchOp(
-            namespace_prefix=("demo",),
-            filter={"type": "chat"},
-    )])
+        [
+            SearchOp(
+                namespace_prefix=("demo",),
+                filter={"type": "chat"},
+            )
+        ]
+    )
     assert len(filtered[0]) == 2
+
+
 def test_batch(store):
     cleanup(store)
     ns = ("demo", "user4")
