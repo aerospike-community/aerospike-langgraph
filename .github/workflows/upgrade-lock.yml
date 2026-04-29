@@ -42,7 +42,7 @@ jobs:
         run: uv lock --upgrade
 
       - name: Open pull request if lockfile changed
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.LOCKFILE_PR_TOKEN }}
           base: main
