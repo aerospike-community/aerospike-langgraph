@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from aerospike_helpers import expressions as exp
+from aerospike_helpers.operations import map_operations, operations
 
 # `Result`, `SearchItem`, and `TTLConfig` are part of the documented public
 # surface of `langgraph.store.base` (they appear in `BaseStore` method
@@ -74,15 +75,6 @@ class AerospikeStore(BaseStore):
 
     def _key(self, namespace: tuple[str, ...], key: str) -> tuple[str, str, str]:
         return (self.ns, self.set, SEP.join([*namespace, key]))
-
-    def _put(self, key: tuple[str, str, str], bins: dict[str, Any], ttl: int | None) -> None:
-        try:
-            if ttl is not None:
-                self.client.put(key, bins, policy={"ttl": ttl})
-            else:
-                self.client.put(key, bins)
-        except aerospike.exception.AerospikeError as e:
-            raise RuntimeError(f"Aerospike put failed for {key}: {e}") from e
 
     def _build_read_policy_for_refresh(self, refresh_ttl: bool | None) -> dict[str, Any]:
         policy: dict[str, Any] = {}
@@ -188,16 +180,11 @@ class AerospikeStore(BaseStore):
         if op.value is None:
             try:
                 self.client.remove(p_key)
+            except aerospike.exception.RecordNotFound:
+                return
             except aerospike.exception.AerospikeError as e:
                 raise RuntimeError(f"Aerospike remove failed for {op.key}: {e}") from e
             return
-
-        now = _now_utc().isoformat()
-        try:
-            _, _, old_bins = self.client.get(p_key)
-            created_at = old_bins.get("created_at", now)
-        except aerospike.exception.AerospikeError:
-            created_at = now
 
         # `op.ttl` has already been resolved by `BaseStore.put` via
         # `_ensure_ttl(ttl_config, ttl)`, so it is either `None` (no TTL
@@ -206,18 +193,35 @@ class AerospikeStore(BaseStore):
         # (-1) so behavior is deterministic regardless of the namespace's
         # default-ttl.
         if op.ttl is None:
-            time_to_live: int | None = -1
+            time_to_live: int = -1
         else:
             time_to_live = -1 if op.ttl < 0 else int(op.ttl * 60)
 
-        bins = {
-            "namespace": list(op.namespace),
-            "key": op.key,
-            "value": op.value,
-            "created_at": created_at,
-            "updated_at": now,
-        }
-        self._put(p_key, bins, time_to_live)
+        # `created_at` / `updated_at` live in a `meta` Map bin so we can
+        # use `MAP_WRITE_FLAGS_CREATE_ONLY | MAP_WRITE_FLAGS_NO_FAIL`
+        # for `created_at`: the value is set on first write and silently
+        # left alone on every subsequent upsert.
+        now = _now_utc().isoformat()
+        ops = [
+            operations.write("namespace", list(op.namespace)),
+            operations.write("key", op.key),
+            operations.write("value", op.value),
+            map_operations.map_put(
+                "meta",
+                "created_at",
+                now,
+                map_policy={
+                    "map_write_flags": (
+                        aerospike.MAP_WRITE_FLAGS_CREATE_ONLY | aerospike.MAP_WRITE_FLAGS_NO_FAIL
+                    ),
+                },
+            ),
+            map_operations.map_put("meta", "updated_at", now),
+        ]
+        try:
+            self.client.operate(p_key, ops, policy={"ttl": time_to_live})
+        except aerospike.exception.AerospikeError as e:
+            raise RuntimeError(f"Aerospike put failed for {op.key}: {e}") from e
 
     def _handle_get(self, op: GetOp) -> Item | None:
         p_key = self._key(op.namespace, op.key)
@@ -236,8 +240,11 @@ class AerospikeStore(BaseStore):
 
         ns = tuple(bins.get("namespace", op.namespace))
         k = bins.get("key", op.key)
-        created_at = bins.get("created_at", _now_utc().isoformat())
-        updated_at = bins.get("updated_at", _now_utc().isoformat())
+        # Timestamps live in the `meta` Map bin (see `_handle_put`).
+        meta = bins.get("meta") or {}
+        now = _now_utc().isoformat()
+        created_at = meta.get("created_at", now)
+        updated_at = meta.get("updated_at", now)
 
         return Item(value=value, key=k, namespace=ns, created_at=created_at, updated_at=updated_at)
 
@@ -280,8 +287,10 @@ class AerospikeStore(BaseStore):
             ns = tuple(bins.get("namespace", ()))
             key = bins.get("key")
             value = bins.get("value")
-            created_at = bins.get("created_at", _now_utc())
-            updated_at = bins.get("updated_at", _now_utc())
+            meta = bins.get("meta") or {}
+            now = _now_utc().isoformat()
+            created_at = meta.get("created_at", now)
+            updated_at = meta.get("updated_at", now)
 
             out.append(
                 SearchItem(
