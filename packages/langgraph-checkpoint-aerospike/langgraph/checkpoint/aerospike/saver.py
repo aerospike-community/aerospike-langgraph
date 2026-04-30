@@ -3,11 +3,11 @@ from __future__ import annotations
 import asyncio
 import builtins
 import contextlib
-import json
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any, cast
 
+from aerospike_helpers.operations import map_operations, operations
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
     WRITES_IDX_MAP,
@@ -114,13 +114,19 @@ class AerospikeSaver(BaseCheckpointSaver):
         return (self.ns, self.set_meta, f"{thread_id}{SEP}{checkpoint_ns}{SEP}__timeline__")
 
     # ---------- aerospike io ----------
-    def _put(self, key, bins: dict[str, Any]) -> None:
-        policy: dict[str, Any] | None = None
+    def _ttl_policy(self) -> dict[str, Any] | None:
+        """Return ``{"ttl": seconds}`` for the configured TTL, or ``None``.
+
+        Passed as ``policy=`` to both ``client.put`` and ``client.operate``.
+        """
         minutes = self._ttl_minutes
-        if minutes is not None:
-            minutes = int(minutes)
-            if minutes > 0:
-                policy = {"ttl": minutes * 60}
+        if minutes is None:
+            return None
+        seconds = int(minutes) * 60
+        return {"ttl": seconds} if seconds > 0 else None
+
+    def _put(self, key, bins: dict[str, Any]) -> None:
+        policy = self._ttl_policy()
         try:
             if policy is not None:
                 self.client.put(key, bins, policy=policy)
@@ -130,39 +136,45 @@ class AerospikeSaver(BaseCheckpointSaver):
             raise RuntimeError(f"Aerospike put failed for {key}: {e}") from e
 
     def _get(self, key) -> tuple | None:
+        # `read_touch_ttl_percent=100` refreshes the TTL on every
+        # successful read, server-side, in the same round-trip.
+        policy: dict[str, Any] | None = None
+        if self._refresh_on_read and self._ttl_minutes is not None and self._ttl_minutes > 0:
+            policy = {"read_touch_ttl_percent": 100}
+
         try:
-            rec = self.client.get(key)
+            if policy is not None:
+                rec = self.client.get(key, policy=policy)
+            else:
+                rec = self.client.get(key)
         except aerospike.exception.RecordNotFound:
             return None
         except aerospike.exception.AerospikeError as e:
             raise RuntimeError(f"Aerospike get failed for {key}: {e}") from e
 
-        if self._refresh_on_read and self._ttl_minutes is not None and self._ttl_minutes > 0:
-            with contextlib.suppress(aerospike.exception.AerospikeError):
-                self.client.touch(key, int(self._ttl_minutes) * 60)
-
         return rec
 
     def _read_timeline_items(self, timeline_key) -> builtins.list[tuple[str, str]]:
-        """Return timeline entries as ``(iso_timestamp, checkpoint_id)`` pairs."""
+        """Return timeline entries as ``(iso_timestamp, checkpoint_id)`` pairs.
+
+        On-disk shape is a Map bin (``timeline``) keyed by
+        ``checkpoint_id`` with ISO-timestamp values. We sort by ``ts``
+        descending here so callers see reverse-chronological order.
+        """
         rec = self._get(timeline_key)
         if rec is None:
             return []
         bins = rec[2]
-        try:
-            items = json.loads(bins.get("items", "[]"))
-            cleaned: list[tuple[str, str]] = []
-            for it in items:
-                if (
-                    isinstance(it, list)
-                    and len(it) == 2
-                    and isinstance(it[0], str)
-                    and isinstance(it[1], str)
-                ):
-                    cleaned.append((it[0], it[1]))
-            return cleaned
-        except Exception:
+        timeline = bins.get("timeline") or {}
+        if not isinstance(timeline, dict):
             return []
+        pairs: list[tuple[str, str]] = [
+            (ts, cid)
+            for cid, ts in timeline.items()
+            if isinstance(ts, str) and isinstance(cid, str)
+        ]
+        pairs.sort(key=lambda p: p[0], reverse=True)
+        return pairs
 
     def _delete(self, key) -> None:
         try:
@@ -220,19 +232,21 @@ class AerospikeSaver(BaseCheckpointSaver):
         )
 
         timeline_key = self._key_timeline(thread_id, checkpoint_ns)
-        items = self._read_timeline_items(timeline_key)
-
-        items = [(t, cid) for (t, cid) in items if cid != checkpoint_id]
-        items.insert(0, (ts, checkpoint_id))
-        if self.timeline_max is not None and len(items) > self.timeline_max:
-            items = items[: self.timeline_max]
-        self._put(
-            timeline_key,
-            {
-                "thread_id": thread_id,
-                "items": json.dumps(items),
-            },
-        )
+        # `map_put` upserts atomically: re-`put()`ing the same
+        # `checkpoint_id` overwrites in place, and concurrent `put()`s
+        # against the same thread/ns can't clobber each other's entries.
+        timeline_ops: list[dict[str, Any]] = [
+            operations.write("thread_id", thread_id),
+            map_operations.map_put("timeline", checkpoint_id, ts),
+        ]
+        timeline_policy = self._ttl_policy()
+        try:
+            if timeline_policy is not None:
+                self.client.operate(timeline_key, timeline_ops, policy=timeline_policy)
+            else:
+                self.client.operate(timeline_key, timeline_ops)
+        except aerospike.exception.AerospikeError as e:
+            raise RuntimeError(f"Aerospike operate failed for {timeline_key}: {e}") from e
 
         cfg_conf: dict[str, Any] = {**(config.get("configurable") or {})}
         cfg_conf.update(
@@ -252,7 +266,17 @@ class AerospikeSaver(BaseCheckpointSaver):
         task_id: str,
         task_path: str = "",
     ) -> None:
+        """Persist pending writes for a checkpoint.
 
+        Each write is stored inside a Map bin (``writes``) keyed by
+        ``f"{task_id}|{idx}"``, written via a single ``client.operate``
+        call. ``map_put`` is server-atomic, giving us upsert-on-retry
+        and tolerating concurrent callers against the same checkpoint.
+
+        The ``thread_id`` bin is rewritten on every call so that
+        ``delete_thread``'s secondary-index query keeps finding the
+        record; the value is the same every time for a given key.
+        """
         if not writes:
             return
 
@@ -260,22 +284,13 @@ class AerospikeSaver(BaseCheckpointSaver):
         if not checkpoint_id:
             return
 
-        key = self._key_writes(
-            thread_id, checkpoint_ns, checkpoint_id
-        )  # Do we need to put task id as key. (Reason: Record limit 8Mb)
-
-        existing_rec = self._get(key)
-        existing_items: list[dict[str, Any]] = []
-        if existing_rec is not None:
-            _, _, bins = existing_rec
-            existing_items = bins.get("writes") or []
-
+        key = self._key_writes(thread_id, checkpoint_ns, checkpoint_id)
         now_ts = _now_ns().isoformat()
 
+        ops: list[dict[str, Any]] = [operations.write("thread_id", thread_id)]
         for idx, (channel, value) in enumerate(writes):
             idx_val = WRITES_IDX_MAP.get(channel, idx)
             type_, serialized = self.serde.dumps_typed(value)
-
             new_item = {
                 "task_id": task_id,
                 "task_path": task_path,
@@ -285,24 +300,17 @@ class AerospikeSaver(BaseCheckpointSaver):
                 "value": serialized,
                 "ts": now_ts,
             }
-            replace_at: int | None = None
-            for i, item in enumerate(existing_items):
-                if item.get("task_id") == task_id and item.get("idx") == idx_val:
-                    replace_at = i
-                    break
+            map_key = f"{task_id}{SEP}{idx_val}"
+            ops.append(map_operations.map_put("writes", map_key, new_item))
 
-            if replace_at is not None:
-                existing_items[replace_at] = new_item
+        policy = self._ttl_policy()
+        try:
+            if policy is not None:
+                self.client.operate(key, ops, policy=policy)
             else:
-                existing_items.append(new_item)
-
-        self._put(
-            key,
-            {
-                "thread_id": thread_id,
-                "writes": existing_items,
-            },
-        )
+                self.client.operate(key, ops)
+        except aerospike.exception.AerospikeError as e:
+            raise RuntimeError(f"Aerospike operate failed for {key}: {e}") from e
 
     def get_tuple(
         self,
@@ -346,8 +354,11 @@ class AerospikeSaver(BaseCheckpointSaver):
         wrec = self._get(self._key_writes(thread_id, checkpoint_ns, checkpoint_id))
         if wrec is not None:
             _, _, wbins = wrec
-            items = wbins.get("writes") or []
-            for item in items:
+            # `writes` is a Map bin (see `put_writes`); each value
+            # carries its own `task_id`, `channel`, and `idx`, so we
+            # don't depend on map iteration order.
+            writes_map = wbins.get("writes") or {}
+            for item in writes_map.values():
                 try:
                     task_id = item.get("task_id", "")
                     channel = item["channel"]

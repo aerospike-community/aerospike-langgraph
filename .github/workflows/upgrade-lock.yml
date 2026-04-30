@@ -51,10 +51,6 @@ jobs:
           add-paths: uv.lock
           commit-message: "chore: refresh uv.lock via weekly upgrade"
           title: "chore: weekly uv lockfile upgrade"
-          # `main` requires signed commits (see setup-github-protection.sh).
-          # `sign-commits: true` makes the action create the commit via the
-          # GitHub Contents API, which signs it with GitHub's web-flow GPG
-          # key so it shows as "Verified" and satisfies the rule.
           sign-commits: true
           body: |
             Automated weekly run of `uv lock --upgrade`.
